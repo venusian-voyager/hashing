@@ -3,6 +3,9 @@
 namespace Voyager\Hashing;
 
 use Voyager\Contracts\Hashing\Hasher;
+use InvalidArgumentException;
+use Voyager\Contracts\IOPools\Promise;
+use Voyager\Contracts\IOPools\WorkerPools\WorkerPool;
 use Voyager\NutsAndBolts\Manager;
 
 /**
@@ -107,6 +110,50 @@ class HashManager extends Manager implements Hasher
     public function getDefaultDriver(): string
     {
         return $this->config->get('hashing.driver', 'bcrypt');
+    }
+
+    /**
+     * Hash a value in a worker: the thread pool when it is on, the process pool otherwise.
+     *
+     * @param  array<string, mixed>  $options
+     * @return \Voyager\Contracts\IOPools\Promise  the hash
+     *
+     * @throws \InvalidArgumentException  neither pool is on
+     */
+    public function makeAsync(#[\SensitiveParameter] string $value, array $options = [], ?string $driver = null): Promise
+    {
+        return $this->workers()->submit(new HashGig(
+            $value, $driver ?? $this->getDefaultDriver(), $options, $this->config->get('hashing', []),
+        ));
+    }
+
+    /**
+     * Check a value against a hash in a worker: the thread pool when it is on, the process pool otherwise.
+     *
+     * @param  array<string, mixed>  $options
+     * @return \Voyager\Contracts\IOPools\Promise  whether they match
+     *
+     * @throws \InvalidArgumentException  neither pool is on
+     */
+    public function checkAsync(#[\SensitiveParameter] string $value, ?string $hashedValue, array $options = [], ?string $driver = null): Promise
+    {
+        return $this->workers()->submit(new CheckHashGig(
+            $value, $hashedValue, $driver ?? $this->getDefaultDriver(), $options, $this->config->get('hashing', []),
+        ));
+    }
+
+    /**
+     * @throws \InvalidArgumentException  neither pool is on
+     */
+    protected function workers(): WorkerPool
+    {
+        return match (true) {
+            $this->vessel->isBound('thread-workers') => $this->vessel->get('thread-workers'),
+            $this->vessel->isBound('process-workers') => $this->vessel->get('process-workers'),
+            default => throw new InvalidArgumentException(
+                'Async hashing runs on a worker pool, and none is on: enable io-pools.pool_workers.threads or io-pools.pool_workers.process.'
+            ),
+        };
     }
 
     /**

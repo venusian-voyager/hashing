@@ -14,8 +14,6 @@ class HashServiceProvider extends ServiceProvider implements DeferrableProvider
      */
     public function register(): void
     {
-        $this->mergeConfigFrom(__DIR__.'/config/hashing.php', 'hashing');
-
         $this->app->registerSingleton('hash', function ($app) {
             return new HashManager($app);
         });
